@@ -43,17 +43,18 @@ class WorkerActor(myId: Int, maxId: Int, myNum: Long) extends Actor with ActorLo
     if (childIds.nonEmpty)
       return
 
-    if (myId == 1) {
+    if (myId > 1) {
+      val parentId: Int = myId / 2
+      val parentPath = context.self.path.parent / makeName(parentId)
+
+      log.debug(s"sending {} to parent ID={}", resultNum, parentId)
+      context.actorSelection(parentPath) ! ReceiveNum(myId, resultNum)
+    }
+    else {
       log.debug(s"sending {} to manager", resultNum)
       context.parent ! ReceiveNum(myId, resultNum)
-      return
     }
 
-    val parentId: Int = myId / 2
-    val parentPath = context.self.path.parent / makeName(parentId)
-
-    log.debug(s"sending {} to parent ID={}", resultNum, parentId)
-    context.actorSelection(parentPath) ! ReceiveNum(myId, resultNum)
     context.stop(self) // the work is complete, exiting
   }
 }
