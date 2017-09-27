@@ -25,7 +25,7 @@ class WorkerActor(myId: Int, maxId: Int, myNum: Long) extends Actor with ActorLo
   }
 
   override def preStart(): Unit = {
-    sendResult()
+    handleResult()
   }
 
   override def receive: Receive = {
@@ -33,13 +33,13 @@ class WorkerActor(myId: Int, maxId: Int, myNum: Long) extends Actor with ActorLo
       log.debug("received {} from child ID={}", senderNum, senderId)
       resultNum += senderNum
       childIds -= senderId
-      sendResult()
+      handleResult()
 
     case ReceiveNum(senderId, _) =>
       log.warning("unexpected sender ID={}", senderId)
   }
 
-  private def sendResult(): Unit = {
+  private def handleResult(): Unit = {
     if (childIds.nonEmpty)
       return
 
@@ -54,5 +54,6 @@ class WorkerActor(myId: Int, maxId: Int, myNum: Long) extends Actor with ActorLo
 
     log.debug(s"sending {} to parent ID={}", resultNum, parentId)
     context.actorSelection(parentPath) ! ReceiveNum(myId, resultNum)
+    context.stop(self) // the work is complete, exiting
   }
 }
