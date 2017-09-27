@@ -44,8 +44,8 @@ class WorkerActor(myId: Int, maxId: Int, myNum: Long) extends Actor with ActorLo
       return
 
     if (myId == 1) {
-      // TODO: send result to the caller.
-      log.info("Result: {}", resultNum)
+      log.debug(s"sending {} to manager", resultNum)
+      context.parent ! ReceiveNum(myId, resultNum)
       return
     }
 
