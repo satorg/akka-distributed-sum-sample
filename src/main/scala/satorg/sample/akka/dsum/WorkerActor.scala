@@ -1,60 +1,65 @@
 package satorg.sample.akka.dsum
 
-import akka.actor.{Actor, ActorLogging, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 
 object WorkerActor {
-  def props(id: Int, idMax: Int, num: Long): Props = Props(new WorkerActor(id, idMax, num))
+  def props: Props = Props[WorkerActor]
 
-  def makeName(id: Int) = s"worker-$id"
+  case class StartWork(selfNum: Long, workers: Vector[ActorRef])
 
-  case class ReceiveNum(senderId: Int, senderNum: Long)
+  case class ReceiveNum(num: Long)
 
 }
 
 import satorg.sample.akka.dsum.WorkerActor._
 
-class WorkerActor(myId: Int, maxId: Int, myNum: Long) extends Actor with ActorLogging {
+class WorkerActor private() extends Actor with ActorLogging {
 
-  private var resultNum: Long = myNum
+  private var resNum: Long = 0
 
-  private var childIds: Set[Int] = {
-    val childId1 = myId * 2
-    val childId2 = childId1 + 1
+  override def receive: Receive = ready()
 
-    (childId1 :: childId2 :: Nil).iterator.takeWhile(_ <= maxId).toSet
+  private def ready(): Receive = {
+    case StartWork(selfNum, workers) =>
+      val selfIndex = workers.indexOf(self)
+
+      // Check input data.
+      if (!workers.isDefinedAt(selfIndex)) {
+        throw new NoSuchElementException(s"not in workers: $self")
+      }
+
+      resNum += selfNum
+
+      val subIndex1 = selfIndex * 2 + 1
+      val subIndex2 = subIndex1 + 1
+
+      // TODO: this can be optimized (no need to evaluate workers.lift(subIndex2) if workers.lift(subIndex1) evaluates to None).
+      val subWorkers = Set.empty[ActorRef] ++ workers.lift(subIndex1) ++ workers.lift(subIndex2)
+      val resWorker = if (selfIndex == 0) sender() else workers((selfIndex - 1) / 2)
+
+      context.become(awaitSubWorkers(resWorker, subWorkers))
   }
 
-  override def preStart(): Unit = {
-    handleResult()
-  }
+  private def awaitSubWorkers(resWorker: ActorRef, subWorkers: Set[ActorRef]): Receive = {
+    if (subWorkers.isEmpty) {
+      log.debug("sending {} to {}", resNum, resWorker)
+      resWorker ! ReceiveNum(resNum)
 
-  override def receive: Receive = {
-    case ReceiveNum(senderId, senderNum) if childIds.contains(senderId) =>
-      log.debug("received {} from child ID={}", senderNum, senderId)
-      resultNum += senderNum
-      childIds -= senderId
-      handleResult()
-
-    case ReceiveNum(senderId, _) =>
-      log.warning("unexpected sender ID={}", senderId)
-  }
-
-  private def handleResult(): Unit = {
-    if (childIds.nonEmpty)
-      return
-
-    if (myId > 1) {
-      val parentId: Int = myId / 2
-      val parentPath = context.self.path.parent / makeName(parentId)
-
-      log.debug(s"sending {} to parent ID={}", resultNum, parentId)
-      context.actorSelection(parentPath) ! ReceiveNum(myId, resultNum)
+      // My work is done, exit
+      context.stop(self)
+      Actor.emptyBehavior
     }
     else {
-      log.debug(s"sending {} to manager", resultNum)
-      context.parent ! ReceiveNum(myId, resultNum)
-    }
+      case ReceiveNum(num) =>
+        log.debug("receiving {} from {}", num, sender())
 
-    context.stop(self) // the work is complete, exiting
+        if (!subWorkers.contains(sender())) {
+          throw new NoSuchElementException(s"not a sub-worker: ${sender()}")
+        }
+
+        resNum += num
+
+        context.become(awaitSubWorkers(resWorker, subWorkers - sender()))
+    }
   }
 }

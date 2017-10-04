@@ -19,15 +19,24 @@ class ManagerActor extends Actor with ActorLogging {
 
   private def idle(): Receive = {
     case StartWork(nums) =>
-      for ((num, idx) <- nums.zipWithIndex) {
-        val id = idx + 1
-        context.actorOf(WorkerActor.props(id, nums.size, num), WorkerActor.makeName(id))
+      if (nums.isEmpty) {
+        throw new IllegalArgumentException("empty input data set")
       }
+
+      val workers =
+        (1 to nums.size).iterator.
+          map { idx => context.actorOf(WorkerActor.props, s"worker-$idx") }.
+          toVector
+
+      for ((num, worker) <- nums.iterator.zip(workers.iterator)) {
+        worker ! WorkerActor.StartWork(num, workers)
+      }
+
       context.become(started(sender()))
   }
 
   private def started(outputRef: ActorRef): Receive = {
-    case WorkerActor.ReceiveNum(1, num) =>
+    case WorkerActor.ReceiveNum(num) =>
       outputRef ! ReturnResult(num)
       context.become(idle())
   }
